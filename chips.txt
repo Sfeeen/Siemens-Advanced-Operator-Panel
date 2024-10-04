@@ -1,0 +1,20 @@
+batterijkant:
+---
+MAX691A - supervisor
+ADM202EA - RS232 line driver
+PCF8563 - Real-time clock/calendar
+32.768k - Crystall
+
+andere kant:
+---
+2144B69FAV SIEMENS A&D / VS andere F2144AFA20V H8S/2144A
+ACT/P8 16Mhz crystall
+HA573 - Octal latches
+SAMSUNG K6X4008C1F-UF55 - CMOS SRAM / VS andere CY62148ELL-45ZSXI
+AHC00 - QUAD nand gates
+AHC08 - QUAND AND gates
+L4931 - LDO
+74VHC32 - QUAD OR GATE
+
+
+Siemens - 6SE6400-0AP00-0AA1 - Micromaster 4 Advanced Operator Panel (AOP) 

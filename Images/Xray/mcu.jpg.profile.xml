@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FullImageProfile xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" FileName="mcu.jpg" OperatorID="ONDSVE">
+  <SavedImageProfile>
+    <FilePath>C:\Users\Nikon Metrology\Documents\ONDSVE\mcu.jpg</FilePath>
+    <FileFormat>JPEG</FileFormat>
+    <BitDepth>8</BitDepth>
+    <SaveFileFormat>2</SaveFileFormat>
+    <JPEGCompressionType>0</JPEGCompressionType>
+    <JPEGCompression>1</JPEGCompression>
+  </SavedImageProfile>
+  <ImageNotes>22 July 2024 09:31:48</ImageNotes>
+  <ImageNotes>The X-ray conditions for this image were 107kV, 3.1W.</ImageNotes>
+  <Sample />
+  <Customer />
+  <ManipulatorPosition Version="2">
+    <AxisPosition>16.9503574</AxisPosition>
+    <AxisPosition>4.25575829</AxisPosition>
+    <AxisPosition>100.788582</AxisPosition>
+    <AxisPosition>0.0006062076</AxisPosition>
+    <AxisPosition>0</AxisPosition>
+  </ManipulatorPosition>
+  <XAxis>0</XAxis>
+  <YAxis>1</YAxis>
+  <MagnificationAxis>2</MagnificationAxis>
+  <RotateAxis>3</RotateAxis>
+  <TiltAxis>4</TiltAxis>
+  <CTRotateAxis>5</CTRotateAxis>
+  <ImagingAxis>6</ImagingAxis>
+  <SampleHeight>0</SampleHeight>
+  <MeasurementCalibrationH>0.024757499791130792</MeasurementCalibrationH>
+  <MeasurementCalibrationV>0.024757499791130792</MeasurementCalibrationV>
+  <MeasurementCalibrationValid>true</MeasurementCalibrationValid>
+  <kV>107</kV>
+  <uA>29</uA>
+  <Power>3.103</Power>
+  <XrayCurrentUsed>true</XrayCurrentUsed>
+  <ExposureTime>250</ExposureTime>
+  <FramesAveraged>2</FramesAveraged>
+  <CameraProperties exposure="250" accumulation="0" binning="0" gain="0" brightness="0" digitalGain="0" WhiteToBlackLatency="20000" BlackToWhiteLatency="0" WhiteToWhiteLatency="1000" lines="1">
+    <transform>1</transform>
+    <imageOffsetX>8</imageOffsetX>
+    <imageOffsetY>8</imageOffsetY>
+    <imageSizeX>1008</imageSizeX>
+    <imageSizeY>1008</imageSizeY>
+  </CameraProperties>
+  <IntensifierField>0</IntensifierField>
+  <IrisDemand>100</IrisDemand>
+  <TimeAcquired>2024-07-22T09:31:48.6946138+02:00</TimeAcquired>
+  <Time>09:31:48</Time>
+  <Date>22 July 2024</Date>
+  <ImageProcessing />
+  <XraySource>Transmission</XraySource>
+  <XraySourceTargetMaterial>Tungsten</XraySourceTargetMaterial>
+  <XrayFiltration>
+    <Material />
+    <ThicknessMM>0</ThicknessMM>
+  </XrayFiltration>
+  <ImageDetector>VarianPaxscan1313DX</ImageDetector>
+  <MapImage>
+    <Width>0</Width>
+    <Height>0</Height>
+  </MapImage>
+  <EditActions />
+  <WireSweep>
+    <Active>false</Active>
+    <SweepPercentage>0</SweepPercentage>
+  </WireSweep>
+</FullImageProfile>

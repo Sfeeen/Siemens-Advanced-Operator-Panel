@@ -1,0 +1,17 @@
+[session]
+main-plugin-id = serialmon
+log-file = 2633_upload_full_image.njlog
+document-settings-file = 2633_upload_full_image.njcfg
+
+[main-plugin]
+portName = "COM9"
+pendingNotifySizeLimit = 1048576
+readParallelism = 4
+readBlockSize = 4096
+readBufferSize = 16384
+notifyReadBufferFull = 0
+[log-filter]
+serial-setting = 1
+serial-control = 1
+serial-status = 1
+serial-line-error = 1
