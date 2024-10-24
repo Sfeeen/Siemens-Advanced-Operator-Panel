@@ -1,0 +1,90 @@
+step 1: connect to device (16:19)
+
+Clock Frequency (External) = 24.0000MHz, Clock Mode = 0, CKM = 1, and CKP = N/A
+Connecting to device 'H8S/2633F' on 'COM1'
+Configuration:
+'BOOT Mode' connection - using emulated interface
+Opening port 'COM1' ...
+Loading Comms DLL
+Loaded Comms DLL
+Initiating BOOT SCI sequence
+Attempting 9600
+Received immediate response from device: 0xAA
+Using micro-Kernel : 'C:\Program Files\Renesas\FDT4.09\kernels\ProtB\2633\Renesas\1_0_00\uGen2633.cde'
+Downloading and verifying micro kernel...
+Device is erasing...
+Erase Timeout value set to 11 seconds
+Erase Successful
+micro-Kernel download successful
+Sending inquiry for getting line size
+Buffer size has been set to default (128 bytes)
+Sending selection of device command
+Selection of Device - Device selected, code 0203
+Sending selection of clock mode
+Sending selection of clock mode
+Selection of Clock Mode - Clock selected, code 0
+Changing baud rate to 57600 bps
+Set baud rate value = 57600
+Downloading main kernel 'C:\Program Files\Renesas\FDT4.09\kernels\ProtB\2633\Renesas\1_0_00\Genm2633.cde'
+Main kernel download complete...
+Connection complete
+
+Step 2: Flash checksum (16:21)
+
+Calculating device checksum
+Flash Checksum: 0x03FC0000 (User Area) 
+
+Step 3: Trying 'Go from address' (not supported) (16:22)
+
+Checking that this kernel supports Go From Address Command...
+Error No 16176: The kernel does not support the Go from Address command
+Operation Error - Go Address
+
+Step 4: Upload user flash EB5 (0x5000 - 0x5FFF) (16:24)
+
+Reading 4 K from device
+Read EB5 (0x00005000 - 0x00005FFF)
+  [Raw Checksum: 0x000FF000]
+Successfully read 4 K from device
+
+Step 5: Blank check (16:25)
+
+Checking for blank device
+Device is blank [User Area]
+
+Step 6: Full upload (16:26)
+
+Reading 256 K from device (0x00000000 - 0x0003FFFF)
+Successfully read 262144 Bytes from device
+256 K read from device in 52 seconds
+  [Raw Checksum: 0x03FC0000]
+  
+Step 7: Download file (16:29)
+
+Processing file :"C:\Documents and Settings\Administrator\Local Settings\Application Data\Renesas\FDT4.09\Workspaces\den2633\dummy.DDI"
+Operation on User Flash
+Downloaded the operation module
+Writing image to device... [0x00000000 - 0x0000007F]
+Data programmed at the following positions:
+ 0x00000000 - 0x0000007F      Length : 0x00000080
+128 Bytes programmed in 1 seconds
+Image written to device
+
+Step 8 : Erase flashblocks EB0 (16:30)
+
+Erasing 1 block from device
+Erasing... 'EB0'...
+Downloaded the operation module
+Erased block EB0 (0x00000000 - 0x00000FFF)
+Erase complete
+
+Step 9: Disconnect (16:31)
+
+Disconnecting
+Disconnected
+
+  
+  
+
+
+
