@@ -327,18 +327,57 @@ def get_com_port():
                 return port.device
 
 
+def find_next_different_byte(file_path, start_address):
+    try:
+        with open(file_path, "rb") as f:
+            # Seek to the starting address
+            f.seek(start_address)
+
+            # Read the byte at the start address
+            initial_byte = f.read(1)
+            if not initial_byte:
+                return f"Start address {hex(start_address)} is out of file range."
+
+            # Now iterate byte by byte
+            current_address = start_address + 1
+            while True:
+                f.seek(current_address)
+                current_byte = f.read(1)
+                if not current_byte:  # EOF
+                    return "End of file reached without finding a different byte."
+
+                if current_byte != initial_byte:
+                    return f"Different byte found at address {hex(current_address)}: {current_byte.hex()}"
+
+                current_address += 1
+
+    except FileNotFoundError:
+        return f"File not found: {file_path}"
+    except Exception as e:
+        return f"An error occurred: {str(e)}"
+
+
+
+
 # Main function to start the communication process
 if __name__ == "__main__":
-    # Usage
-    # combine_files('kernel/2633_micro_kernel/uGen2633_original.cde', 'kernel/2633_main_kernel/Genm2633.cde', 'kernel/2633_both_kernels/combined_kernels')
+    # Example usage:
+    file_path = "received_bytes_from_address_0x00000000.bin"
+    start_address = 0x000
+    result = find_next_different_byte(file_path, start_address)
+    print(result)
 
-    cp = get_com_port()
 
-    communicate_with_device(cp)
-
-    # with open("kernel/2633_main_kernel/communicated_main_kernel.bin", "rb") as program_file:
-    #     program_data = program_file.read()
+    # # Usage
+    # # combine_files('kernel/2633_micro_kernel/uGen2633_original.cde', 'kernel/2633_main_kernel/Genm2633.cde', 'kernel/2633_both_kernels/combined_kernels')
     #
-    # print(len(program_data))
+    # cp = get_com_port()
+    #
+    # communicate_with_device(cp)
+    #
+    # # with open("kernel/2633_main_kernel/communicated_main_kernel.bin", "rb") as program_file:
+    # #     program_data = program_file.read()
+    # #
+    # # print(len(program_data))
 
 

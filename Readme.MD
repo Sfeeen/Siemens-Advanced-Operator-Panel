@@ -1078,10 +1078,52 @@ First thing in the morning,  checking my program it was still running perfect! I
 of a small 32Mbyte so it was really slow dumping but it's enough to cover the advanced mode memory region almost twice
 (24-bit addressing = 16Mbyte).
 
+Scrolling over it's content in my hex editor I noted where, what kind of data was found:
+
+- 0x000000 - 0x040000: 0xFF
+- 0x040000 - 0xFFB000: 38 8B 38 8B (8<8<) pattern
+- 0xFFB000 - 0xFFEFC0: code
+- 0xFFEFC0 - 0xFFFDAB: 38 8B 38 8B (8<8<) pattern
+- 0xFFFDAB - 0xFFFFFF: some weird data
+
+For the 'weir data', this it what it looks like:
+
+<img src="Images/weird_data.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+I cannot make out what kind of data this is!
+
+Now mapping our findings on the known parts of the memory map we get:
+
+translated to the memory regions:
+- 0x000000 - 0x03FFFF (ROM) -> 0xFF
+- 0x040000 - 0xFFAFFF (EXT) -> 0xFF
+- 0xFFB000 - 0xFFEFBF (RAM) -> code
+- 0xFFEFC0 - 0xFFF7FF (EXT) -> (0x38 0x8B) pattern
+- 0xFFF800 - 0xFFFF3F (I/O) -> (0x38 0x8B) and some weird data
+- 0xFFFF40 - 0xFFFF5F (EXT) -> 38 8B 38 8B (8<8<) pattern
+- 0xFFFF60 - 0xFFFFBF (I/O) -> weird data
+- 0xFFFFC0 - 0xFFFFFF (RAM) -> weird data
+
+Okay looking at it now its maybe somewhat more explainable. I could understand that the I/O registers
+have a kind off repeating though somewhat changing values.
+For the second RAM section I have no idea, I don't understand why there are even 2 RAM parts.
+Nonetheless I just extracted the first RAM porten and put it into IDA. 
+
+## Reversing the pre-micro-kernel
+
+Reversing this kernel is nothing like the other two. When hitting 'C' it only transforms several lines into code
+and then mostly follows a byte or two that cannot be transformed into code, after this again a small portion of code can be formed...
+This one is clearly going to be a bit thougher. I also won't find much info about this code from manuals or certainly would find source code for this (Or would I ?).
+
+<img src="Images/premicrokernel.png" alt="AOP Front" title="AOP Front" width="800"/>
 
 
-https://github.com/quarkslab/binbloom
-https://github.com/alexhude/LoadProcConfig
+The parts that get transformed to code are certainly code I figured because they aren't some exotic opcodes you would find from
+forcing data bytes into code. 
+
+
+
+
 
 
 
