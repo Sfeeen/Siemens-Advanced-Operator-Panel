@@ -1121,17 +1121,712 @@ This one is clearly going to be a bit thougher. I also won't find much info abou
 The parts that get transformed to code are certainly code I figured because they aren't some exotic opcodes you would find from
 forcing data bytes into code. 
 
+For a moment I though that maybe dissasembly would be different (beter) when I loaded the H8S/300 processor in normal mode.
+Maybe first some part runs in a universal 'normal' mode and after this the microkernel can run in advanced mode
+but the IDA result was the same. After doing so I figured this explanation also doesn't make a lot of sence but reversing is also sometimes just trying things.
+
+Let's look at a part if the microkernel where it jumps to some location:
+<img src="Images/ffc00c.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+We see that when it wants to jump to address 0xFFC00C these bytes are in the opcode (and in this order / big endianess!).
+So we can search the pre-kernel for a sequence of bytes 0xFFC000 to find the code that eventually jumps to the micro-kernel?
+
+No real luck it seems. The first and only find is in the RAM after the kernels and dissasembling this we actually just get a mov.b instruction instead of a jump.
+<img src="Images/sequency_of_bytes.png" alt="AOP Front" title="AOP Front" width="800"/>
+<img src="Images/movb.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Wait let's try forcing the bytes before into code...
+
+Great success!! 
+It turns out it matters from which bytes you start to force to code. This was indeed the jump to the main kernel
+and as a bonus we also get to see some indications of SCI2 interaction, that's a good sign!
+<img src="Images/great_success.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+<img src="Images/borat.gif" alt="AOP Front" title="AOP Front" width="800"/>
+
+As a reminder the red squared content is interaction coming from the pre-kernel. So we should look for code that seems to do this.
+<img src="Images/prekernelint.drawio.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+I decided to get started with IDA python and write some code to export the function names I already had declared and made it so I can import them 
+in the new project and so I did. I also experimented a bit and tried to make the segments and do some register renaming from python
+scripts. Nothing fancy so you get no snippet of this code but it's included in this project!
+
+After this I searched further for 'sequence of bytes'
+search 0xffc000 and recovered some functions
+searched 0x3fff (I asssume  this address should be present in the erase function to erase all ROM (0x0 - 0x3fff). I got
+3 hits but didn't look like the erase function...
+Then tried searching typical bytes for the SCI2 receive byte function (from main and microkernel). Because I assume the pre-kernel
+must also have it to do its auto bit rate matching but no founds...
+
+I tried to look for code that uses the SSR2 register (0xFFFF8C) but discovered I cannot just simply look for these bytes
+as you can see below (short addressing makes it only '8C'):
+<img src="Images/search_registers.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Okay let's search for 0x55 since that is this byte is used for the initial handshake, we do find this:
+<img src="Images/search_for_55.png" alt="AOP Front" title="AOP Front" width="800"/>
+As a response to this handshake 0xAA gets send and we also find this value some bytes above 0x55.
+It seems to be some datastructure of an array with 4 WORD values but I could not make much out of it.
+
+We can assume this code will receive a byte for the handshake and compare if this byte is 0x55 so instead of searching
+for 0x55 we might get lucky searching for the bytes of the 'compare' opcode. While cntr + B'ing (stepping through the results)
+I seem to have found the code that transmits the 0xAA handshake response though we don't see a compare with 0x55:
+
+<img src="Images/found_bitrate_matching_qm.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+After looking around I figure the beginning of the pre-kernel might be located at 0xffe000
+which would make sense (start RAM is 0xffb000, start uKernel is 0xffc000).
+
+I also learned that the stack starts at the bottom of the RAM (0xFFEFC0)
+<img src="Images/stackpointer_1.png" alt="AOP Front" title="AOP Front" width="800"/>
+<img src="Images/stackpointer_2.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+After this I started trying to make sense of all the prekernel code but got lost in functions of which I could not found out what they exactly do.
+
+I was thinking of approaches that would make this simpler:
+Since we have in the kernelmap source code for the erase module (I assume), but no binary of it we could try
+to build this module ourselves. We do find a windows bat file for compiling the source code and we might be able to include
+debug symbols by changing /nodeb to /deb or just removing this option.
+<img src="Images/build_erase_module.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Unfortunately this code depends on a library 'H8Sruntime.lib' which I don't have. It does not exist on the system and I
+don't find any info about it...
+
+Going through files in the kernel source map I looked at "F2633e.SRC" (file regarding the erase module) From the output of chatgpt I figured this might give an explanation for the 'spaces' or undecompile-able bytes between code: variables that are aligned inbetween
+<img src="Images/chatgpt_erase.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+What also could help is the flowdiagram of how the flash can be erased, I found this one online:
+<img src="Images/erase_procedure.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+But generally I am not making much out of the dumped RAM content. Some pieces I cannot decompile, I have no hold of what's what...
+
+I want to put my focus on finishing the hello world script aka trying to get my transmit function to work.
+Now it should be easier since I have the source code of the kernels which includes a uart init function but I also have 
+found some HEW examples from an installer for a startskit. I found 2 examples for different microcontrollers that show how to transmit over uart so it should be a walk in the park right?
+
+Well no ... I clearly performed the same steps of the example code (couldn't just copy it because it has other register addresses and some other function definitions).
+I spend days grasping why it didn't work. 
+Some things I did:
+- Tried different SCI channels
+- Verified the registers values in code after setting them to a value (if not equal=beep) so I would be sure the value is stored correctly
+- Verified the steps in the simulation but It just would never set the TDRE bit.
+- Attached a scope and set the SCK to output the clock: but no clock could be seen :'(
+
+At this point my code is:
+
+```
+/***********************************************************************/
+/*                                                                     */
+/*  FILE        :setbuzz.c                                             */
+/*  DATE        :Sun, Oct 06, 2024                                     */
+/*  DESCRIPTION :Main Program                                          */
+/*  CPU TYPE    :H8S/2633F                                             */
+/*                                                                     */
+/*  This file is generated by Renesas Project Generator (Ver.4.16).    */
+/*                                                                     */
+/***********************************************************************/
+
+
+void main(void);
+#ifdef __cplusplus
+extern "C" {
+void abort(void);
+}
+#endif
+
+#include <machine.h>
+#include "iodefine.h"  // Include register definitions
+
+void delay_ms(unsigned long ms);  // Function declaration for delay
+void beep(unsigned int amount);
+void sci2_init(void);   
+void sci2_send_char(char c);      // Send a single character over SCI4
+void sci2_send_string(const char *str);  // Send a string over SCI4
+void text_write (const char * msg_string);
+void uart_init(void);
+volatile int i;    
+char dummy;    
+
+#define ORER_BIT (1 << 5)  // Overrun Error at bit 5
+#define FER_BIT  (1 << 4)  // Framing Error at bit 4
+#define PER_BIT  (1 << 3)  // Parity Error at bit 3
+
+#define TE_BIT  (1 << 5)  // Transmit Enable
+#define RE_BIT  (1 << 4)  // Receive Enable
+#define RIE_BIT (1 << 6)  // Receive Interrupt Enable
+
+/* String constants used for screen output */
+const char cmd_clr_scr[] = {27,'[','2','J',0};
+const char cmd_cur_home[] = {27,'[','H',0};
+
+volatile unsigned char UART_in;
+  
+
+void main(void)
+{
+    // Set PC6 as an output pin
+    PC.DDR |= (1 << 6);  // Configure PC6 as output//PC6
+
+	uart_init();
+	//sci2_init(); //PA1 PA2
+    text_write(cmd_clr_scr);
+	beep(5);	 	
+	text_write(cmd_cur_home);	 	
+	text_write("Renesas Technology Corporation \r\n");	   
+	text_write("RSK2H8S2456R UART demo. \r\n");	   
+	text_write("Press z to stop, any key to continue. \r\n");
+    //sci2_send_string("Hello, world!\n");
+    //sci2_send_string("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+
+    while (1) {
+        // Toggle PC6 (buzzer)
+        PC.DR.BIT.B6 ^= 1;  // Toggle PC6 state (0 -> 1, 1 -> 0)
+        
+        // Wait for 1 second (1000 ms)
+        delay_ms(1000);
+    }
+}
+
+void uart_init(void) 
+{
+    unsigned char dummy;
+	unsigned char expected_brr;
+	
+		// Set PA3 as output
+	PA.DDR |= (1 << 3);  // Set bit 3 of PA.DDR to 1, configuring PA3 as output
+
+	// Set PA3 high
+	PA.DR.BIT.B3 = 1; 
+
+    // Reset SCR register and check if it was set to 0x00
+    SCI2.SCR.BYTE = 0x01;
+    if (SCI2.SCR.BYTE != 0x01) {
+        beep(3);  // Error indication if the SCR byte wasn't set to 0x00
+    }
+	
+
+
+    // Set baud rate register (BRR) for 9600 baud (PCLK assumed to be 25 MHz)
+    SCI2.BRR = (unsigned char)((((25000000L * 2u) / 64u) / 9600) - 1u);
+    expected_brr = 0x50; // 80
+    if (SCI2.BRR != expected_brr) {
+        beep(3);  // Error indication if BRR didn't set as expected
+    }
+
+    // Set Serial Mode Register (SMR) to asynchronous mode, 8 data bits, no parity
+    SCI2.SMR.BYTE = 0x00;
+    if (SCI2.SMR.BYTE != 0x00) {
+        beep(3);  // Error indication if SMR wasn't set to 0x00
+    }
+	
+	//INTC.INTCR.BYTE = 0x00;	
+	SYSCR.BIT.INTM = 0x00;
+	
+		/* Enable interrupts	 */
+	set_imask_ccr((unsigned char)0);
+	
+	// Clear errors by resetting the respective bits
+	SCI2.SSR.BYTE &= ~(ORER_BIT | FER_BIT | PER_BIT);
+
+	// Enable transmission (TE), reception (RE), and reception interrupt (RIE) without altering other bits
+	SCI2.SCR.BYTE |= (TE_BIT | RE_BIT | RIE_BIT);
+
+	// Check if the required bits are set
+	if ((SCI2.SCR.BYTE & (TE_BIT | RE_BIT | RIE_BIT)) != (TE_BIT | RE_BIT | RIE_BIT)) {
+	    beep(4);  // Error indication if any of the bits are not set as expected
+	}
+
+    // Dummy read to clear any residual data in RDR
+    dummy = (unsigned char)SCI2.RDR;
+	beep(1);
+}
+
+void sci2_send_char(char c)
+{
+    // Wait until the transmit data register is empty
+    while (SCI2.SSR.BIT.TDRE == 0){}  // Wait for the TDRE flag to be set
+	//while ((SCI2.SSR.BYTE & 0x80) == 0){}
+	//while (SCI4.SSR.BIT.TDRE != 1)
+	
+    // Write the character to the transmit data register
+    SCI2.TDR = c;
+    // Clear the TDRE flag by writing 0
+    SCI2.SSR.BIT.TDRE = 0;
+	beep(3);
+	
+	
+}
+
+void text_write (const char * msg_string)
+{
+	/* Variable used to refer specific data while reading from the message buffer */
+	char loopCnt;
+	
+	/* This loop reads a text string from the buffer and loads it to the SCI1
+	   transmit buffer */
+	for (loopCnt = 0; msg_string[loopCnt]; loopCnt++)
+	{	 
+		while (SCI2.SSR.BIT.TDRE != 1)
+		{
+			/* Wait till TDRE flag is set */
+		}
+		
+		/* Output the character on the serial port. */ 
+		SCI2.TDR = (unsigned char)msg_string[loopCnt];
+		
+		/* Reset the TDRE flag */
+		SCI2.SSR.BIT.TDRE = 0;
+	}
+}
+
+void beep(unsigned int amount)
+{
+        for (i = 0; i < amount; i++) {
+			PC.DR.BIT.B6 = 0;    // Set PC6 high (turn on buzzer)
+			delay_ms(200);
+			PC.DR.BIT.B6 = 1;
+			delay_ms(200);
+			PC.DR.BIT.B6 = 0;
+        }
+		
+		delay_ms(1000);
+}
+
+// Function to create a delay (in milliseconds)
+void delay_ms(unsigned long ms)
+{
+    unsigned long i;
+    while (ms--) {
+        for (i = 0; i < 5000; i++) {
+			nop();
+        }
+    }
+}
+
+__interrupt(vect=89) void INT_RXI2_SCI2(void)
+{
+	PC.DR.BIT.B6 = 1;
+	while(SCI2.SSR.BIT.RDRF == 0)
+	{
+		/* Make sure that the receive is complete */	
+	}
+	delay_ms(10000);
+	
+	PC.DR.BIT.B6 = 1;
+	
+	/* Read the received data */
+	UART_in = SCI2.RDR;
+
+	/* Clear the RDRF flag */
+	SCI2.SSR.BIT.RDRF = 0x00;
+	
+	/* If 'z' was entered: wait for previous transmission to complete, echo "z" to screen
+	and  turn LED2 ON */
+	if (UART_in == 'z')
+	{		
+		while (SCI2.SSR.BIT.TDRE != 1)
+		{
+			/* Wait till TDRE flag is set */
+		}
+		
+		/* Echo 'z' on the screen */ 
+		SCI2.TDR = 'z' ;
+		
+		/* Reset the TDRE flag */
+		SCI2.SSR.BIT.TDRE = 0x00;
+						
+	}
+}
+/**********************************************************************************
+End of ISR INT_RXI1_SCI_1
+***********************************************************************************/
+
+#ifdef __cplusplus
+void abort(void)
+{
+
+}
+#endif
+```
+
+Finally I had it solved by looking at GenTest.c, some C code that has a InitSCI for the kernels.
+
+These lines are there that I didnt find in any other SCI example 'uart_init'-function:
+
+```
+	/*--- Module stop controll register B ---*/
+	MSTPCRB &= ~0x20;
+
+	/*--- Low Power controll register(ratio:x1) ---*/
+	LPWRCR = 0x00;
+
+	/*--- System Clock controll ---*/
+	SCKCR = 0x08;
+```
+
+<img src="Images/initsci_gentest.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Since the kernelcode is quite low level, I was assumming this wasn't relevant, that this sets up some clock and power things not related to SCI.
+the examples didnt seem to have this part and if they needed it, it is probably done in some import so I would have it also when having a project setup in HEW...
+Well I guess a was WRONG!
+
+The first line is crucial: 
+
+`MSTPCRB &= ~0x20; `
+
+In HEW I don't have that register defined like this so for me I had to insert:
+
+`MSTP.CRB.BIT._SCI2 = 0; // CRUCIAL!!!`
+
+and then I suddenly heard a melody of beeps that I was craving to hear a long time.
+My serial port greeted me with some text that was defined to be send in my code:
+
+<img src="Images/serial_output.png" alt="AOP Front" title="AOP Front" width="800"/>
+(the text is a copy from some SCI example)
+
+Also when I send something myself over serial the interrupt I defined seemed to work as well since
+it makes my buzzer beep for a long time. Today is a good day!
+
+# Further steps
+
+Now currently we have no fixed plan of attack to readout ROM from a unit we would like to copy.
+The erase function is baked into the chip and runs before any configurable code runs. 
+You might think we could try clock or voltage glitching to try to skip the erase but even if there
+is some instruction in the mask rom code which, if glitched would skip the erase then we would
+only have one try when performing this on our chip of interest, since after a single failure the content
+would be irreversibly lost... 
+
+
+Getting a glitch to work all of the time, even on different chips is not feasible, so we'll have to figure out another
+way. I don't have any concrete ideas right now on how we could do it, but if we want to do it
+we should first explore the workings of the chip some more, specifically the writing/reading of the ROM.
+
+Now this is FINALLY done, lets just write a dumper reading out all address from application level.
+I might need this for some exploit tests.
+
+First I made the following dumper to dump the code portion of the RAM:
+
+```
+/***********************************************************************/
+/*                                                                     */
+/*  FILE        :dumper.c                                              */
+/*  DATE        :Sun, Nov 10, 2024                                     */
+/*  DESCRIPTION :Main Program                                          */
+/*  CPU TYPE    :H8S/2633                                              */
+/*                                                                     */
+/*  This file is generated by Renesas Project Generator (Ver.4.16).    */
+/*                                                                     */
+/***********************************************************************/
+                  
+
+
+void main(void);
+#ifdef __cplusplus
+extern "C" {
+void abort(void);
+}
+#endif
+
+#include <machine.h>
+#include "iodefine.h"  // Include register definitions
+#include <stdio.h>  // For sprintf
+
+void delay_ms(unsigned long ms);  // Function declaration for delay
+void beep(unsigned int amount);
+void text_write (const char * msg_string);
+void uart_init(void);
+void loop(void);
+void dumping(void);
+volatile int i;    
+char dummy;    
 
 
 
+#define RAM_START_ADDRESS 0xFFB000  // Example start of RAM section (adjust as needed)
+#define RAM_END_ADDRESS   0xFFEFBF  // Example end of RAM section (adjust as needed)
+
+
+#define ORER_BIT (1 << 5)  // Overrun Error at bit 5
+#define FER_BIT  (1 << 4)  // Framing Error at bit 4
+#define PER_BIT  (1 << 3)  // Parity Error at bit 3
+
+#define TE_BIT  (1 << 5)  // Transmit Enable
+#define RE_BIT  (1 << 4)  // Receive Enable
+#define RIE_BIT (1 << 6)  // Receive Interrupt Enable
+
+volatile unsigned char UART_in;
+
+void main(void)
+{
+	
+    // Set PC6 as an output pin
+    PC.DDR |= (1 << 6);  // Configure PC6 as output//PC6
+
+	uart_init();
+	 	
+	text_write("2633 dumper started \r\n");	  
+	
+	while(1){
+		loop();
+	} 
+
+}
+
+void loop(void){
+	if (UART_in == 'r'){
+		UART_in = '0';			
+		text_write("Dumping RAM: \r\n");	
+		dumping();
+	}
+}
+
+void dumping(void) {
+	unsigned char *address;
+	
+    // Iterate over the specified RAM range
+    for (address = (unsigned char *)RAM_START_ADDRESS; address <= (unsigned char *)RAM_END_ADDRESS; address++) {
+        // Send each byte directly over UART without formatting
+        while (SCI2.SSR.BIT.TDRE == 0) {
+            // Wait until the transmit data register is empty
+        }
+        
+        // Load the byte from memory directly into the transmit data register
+        SCI2.TDR = *address;
+        
+        // Clear the TDRE flag
+        SCI2.SSR.BIT.TDRE = 0;
+    }
+
+    // Send a newline to indicate end of dump, if necessary
+    text_write("dumping done!\r\n");
+}
+
+
+void uart_init(void) 
+{
+    unsigned char dummy;
+	unsigned char expected_brr;
+	
+	/*--- Module stop controll register B ---*/
+    MSTP.CRB.BIT._SCI2 = 0; // CRUCIAL!!!
+	//MSTPCRB &= ~0x20;
+	
+		// Set PA3 as output
+	PA.DDR |= (1 << 3);  // Set bit 3 of PA.DDR to 1, configuring PA3 as output
+
+	// Set PA3 high
+	PA.DR.BIT.B3 = 1; 
+
+    // Reset SCR register and check if it was set to 0x00
+    SCI2.SCR.BYTE = 0x01;
+    if (SCI2.SCR.BYTE != 0x01) {
+        beep(3);  // Error indication if the SCR byte wasn't set to 0x00
+    }
+	
+
+
+    // Set baud rate register (BRR) for 9600 baud (PCLK assumed to be 25 MHz)
+    SCI2.BRR = (unsigned char)((((25000000L * 2u) / 64u) / 9600) - 1u);
+    expected_brr = 0x50; // 80
+    if (SCI2.BRR != expected_brr) {
+        beep(3);  // Error indication if BRR didn't set as expected
+    }
+
+    // Set Serial Mode Register (SMR) to asynchronous mode, 8 data bits, no parity
+    SCI2.SMR.BYTE = 0x00;
+    if (SCI2.SMR.BYTE != 0x00) {
+        beep(3);  // Error indication if SMR wasn't set to 0x00
+    }
+	
+	//INTC.INTCR.BYTE = 0x00;	
+	SYSCR.BIT.INTM = 0x00;
+	
+		/* Enable interrupts	 */
+	set_imask_ccr((unsigned char)0);
+	
+	// Clear errors by resetting the respective bits
+	SCI2.SSR.BYTE &= ~(ORER_BIT | FER_BIT | PER_BIT);
+
+	// Enable transmission (TE), reception (RE), and reception interrupt (RIE) without altering other bits
+	SCI2.SCR.BYTE |= (TE_BIT | RE_BIT | RIE_BIT);
+
+	// Check if the required bits are set
+	if ((SCI2.SCR.BYTE & (TE_BIT | RE_BIT | RIE_BIT)) != (TE_BIT | RE_BIT | RIE_BIT)) {
+	    beep(4);  // Error indication if any of the bits are not set as expected
+	}
+
+    // Dummy read to clear any residual data in RDR
+    dummy = (unsigned char)SCI2.RDR;
+	beep(1);
+}
 
 
 
+void text_write (const char * msg_string)
+{
+	/* Variable used to refer specific data while reading from the message buffer */
+	char loopCnt;
+	
+	/* This loop reads a text string from the buffer and loads it to the SCI1
+	   transmit buffer */
+	for (loopCnt = 0; msg_string[loopCnt]; loopCnt++)
+	{	 
+		while (SCI2.SSR.BIT.TDRE != 1)
+		{
+			/* Wait till TDRE flag is set */
+		}
+		
+		/* Output the character on the serial port. */ 
+		SCI2.TDR = (unsigned char)msg_string[loopCnt];
+		
+		/* Reset the TDRE flag */
+		SCI2.SSR.BIT.TDRE = 0;
+	}
+}
+
+void beep(unsigned int amount)
+{
+        for (i = 0; i < amount; i++) {
+			PC.DR.BIT.B6 = 0;    // Set PC6 high (turn on buzzer)
+			delay_ms(200);
+			PC.DR.BIT.B6 = 1;
+			delay_ms(200);
+			PC.DR.BIT.B6 = 0;
+        }
+		
+		delay_ms(1000);
+}
+
+// Function to create a delay (in milliseconds)
+void delay_ms(unsigned long ms)
+{
+    unsigned long i;
+    while (ms--) {
+        for (i = 0; i < 5000; i++) {
+			nop();
+        }
+    }
+}
+
+__interrupt(vect=89) void INT_RXI2_SCI2(void)
+{
+	while(SCI2.SSR.BIT.RDRF == 0){}
+
+	/* Read the received data */
+	UART_in = SCI2.RDR;
+
+	/* Clear the RDRF flag */
+	SCI2.SSR.BIT.RDRF = 0x00;
+}
+/**********************************************************************************
+End of ISR INT_RXI1_SCI_1
+***********************************************************************************/
 
 
+#ifdef __cplusplus
+void abort(void)
+{
 
+}
+#endif
 
+```
 
+This works, nice, bit it's quite slow. I upped the baudrate to 57600. I tried 115200 but then my text output had errors. 
+But 6 times faster is already nice!
 
+I dumped ROM but the values are all '0xFF'. But to read and write to ROM I know you have to set certain bits, 
+I should get acquainted with this procedure, but luckily I had seen an example project while struggling with SCI called 'FLash data'':
+<img src="Images/flash_data_example.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Description.txt reads: 
+```
+FLASH_Data
+The application demonstrates the usage of Flash Programming mode to write and erase the on-chip data flash memory.
+```
+I looked into it but it gave no clues in why a 'read' would be protected. I then got the idea of reading
+ghost memory regions of the ROM data, these are memory regions that can be accessed but don't fall in the defined memory map.
+So we might read the content of ROM by reading 0x78000000 - 0x78003FFF instead of 0x000000 - 0x003FFF and find the same data but unprotected.
+But while trying this out I saw I actually could read out the ROM at it's normal address just fine... 
+I probably had made a stupid mistake before but anyway there is no further need to investigate the FLASH procedures now.
+
+Also I checked in which of the 7 possible modes our controller runs, since the operation mode affects that memory map. 
+We are in mode 7 since hardware signals MD0, MD1 and MD2 are 1. This is advanced mode/ single chip mode so internal ROM is indeed 
+what is mapped at 0x0 - 0x003FFF.
+
+<img src="Images/mode_7.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Next up I got the following idea which could help me in reversing the code from the pre-kernel:
+since the dump contains a lot more data then only the code of this pre-kernel I write an application that fills the whole RAM
+with a dummy value, let's say the value 0x75 being char 's'. After this 'cleaning' of the RAM I reset the microcontroller into BOOT MODE 
+and upload the patched microkernel that dumps the whole RAM. With regard to the dump before I should now have the prekernel code and the microkernel
+code in RAM and all the rest should be 's' instead of noise of which I can not make clear if its part of the microkernel.
+
+This is the code I came up with for clearing the RAM, note that there is also a dumping_RAM function but this one is just
+for testing. We want our RAMdump to contain as least as possible code so we dump from within the microkernel.
+
+```
+void dumping_RAM(void) {
+    unsigned long address;
+
+   
+    for (address = RAM_START_ADDRESS; address <= RAM_END_ADDRESS; address++) {
+        // Wait until the transmit data register is empty
+        while (SCI2.SSR.BIT.TDRE == 0) {
+            // Busy wait
+        }
+
+        // Access the address in the 24-bit space
+        SCI2.TDR = *((unsigned char *)address);  // Cast address to 8-bit pointer for dereferencing
+
+        // Clear the TDRE flag to indicate byte has been sent
+        SCI2.SSR.BIT.TDRE = 0;
+    }
+
+    // Send a newline to indicate end of dump, if necessary
+    text_write("dumping done!\r\n");
+}
+
+void clear_RAM(void) {
+    unsigned char *address;
+
+    // Iterate over the specified RAM range and set each byte to 's' (0x73)
+    for (address = (unsigned char *)RAM_START_ADDRESS; address <= (unsigned char *)RAM_END_ADDRESS; address++) {
+        *address = 's';  // Write ASCII value of 's' (0x73) to each byte in RAM
+    }
+
+    // Optionally, send a message to indicate the operation is complete
+    text_write("RAM cleared with 's'!\r\n");
+}
+
+```
+
+Here I run the cleaning function, as I somewhat expected the program crashes after cleaning the RAM, that's understandable since the application
+itself gets ran from RAM so it actually deletes itself. But it is able to clean most of  the RAM so we can go through with this idea.
+<img src="Images/clear_ram_s.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Now after dumping RAM from the microkernel and looking at this dump in HxD we see sections still being cleared:
+
+<img src="Images/RAM_after_cleaning.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+If we analyse the regions of this dump now:
+- 0xFFB000 - 0xFFB470 95% '0' with sometimes a value
+- 0xFFB470 - 0xFFC000 unknown code
+- 0xFFC000 - 0xFFC795 microkernel code + data at the end
+- 0xFFC795 - 0xFFE000 unused space (all ox75 or 's') (though 2 lonely bytes at 0xFFCD72)
+- 0xFFE000 - 0xFFE3E5 unknown code
+- 0xFFE3E5 - 0xFFE800 unused space (all ox75 or 's') 
+- 0xFFE800 - 0xFFE86A data space (see image above)
+- 0xFFE86A - 0xFFEF97 unused space (all ox75 or 's') 
+- 0xFFEF97 - 0xFFEFBF unknown code or data -> Here starts the STACK as seen before.
+
+The pieces of unknown code are the most interesting and we should be able
+to label them to a certain function.
+Let's now fully reverse this code
+
+TO BE CONTINUED
+---------------------------------------------------------------------------------------
+
+0xFFE000 - 0xFFE3E5 unknown code -> indeed code, something with flash memory
+Try building erase module with symbosl: H8Sruntime.lib not found
 
 

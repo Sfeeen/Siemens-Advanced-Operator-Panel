@@ -227,16 +227,18 @@ def communicate_with_device(port):
     ser = auto_bit_rate_matching(port)
 
     # write_control_program_transfer(ser, "kernel/2633_micro_kernel/uGen2633_patched_4F.cde")
-    write_control_program_transfer(ser, "kernel/2633_micro_kernel/uGen2633_patched_spitout_content.cde")
+    write_control_program_transfer(ser, "kernel/2633_micro_kernel/uGen2633_patched_spitout_from_RAMSTART.cde")
 
     ser.write([0x4F])
 
     # Send a command to the microcontroller (e.g., 0x4F)
     # ser.write([0x4F])
 
+
+
     # Wait for the response
     time.sleep(1)  # Delay to give time for the microcontroller to respond
-
+    #
     # Open file in append mode (binary mode to handle raw bytes)
     with open("received_bytes_from_address_0x00000000.bin", "ab") as f:  # 'ab' mode opens the file for appending in binary
         # Read available data and append byte by byte
@@ -244,8 +246,8 @@ def communicate_with_device(port):
             if ser.in_waiting:  # Check if data is available
                 byte = ser.read(1)  # Read one byte
                 print(f"Received byte: {byte.hex()}")  # Print byte in hex format
-                f.write(byte)  # Append the byte to the file
-                f.flush()  # Ensure the data is written to disk immediately
+                # f.write(byte)  # Append the byte to the file
+                # f.flush()  # Ensure the data is written to disk immediately
             # boot_program_status_inquiry(ser, readamount=0xFFFFFF)  # Continuously check status
 
     #
@@ -362,18 +364,19 @@ def find_next_different_byte(file_path, start_address):
 # Main function to start the communication process
 if __name__ == "__main__":
     # Example usage:
-    file_path = "received_bytes_from_address_0x00000000.bin"
-    start_address = 0x000
-    result = find_next_different_byte(file_path, start_address)
-    print(result)
+
+    # file_path = "received_bytes_from_address_0x00000000.bin"
+    # start_address = 0x000
+    # result = find_next_different_byte(file_path, start_address)
+    # print(result)
 
 
     # # Usage
     # # combine_files('kernel/2633_micro_kernel/uGen2633_original.cde', 'kernel/2633_main_kernel/Genm2633.cde', 'kernel/2633_both_kernels/combined_kernels')
     #
-    # cp = get_com_port()
-    #
-    # communicate_with_device(cp)
+    cp = get_com_port()
+
+    communicate_with_device(cp)
     #
     # # with open("kernel/2633_main_kernel/communicated_main_kernel.bin", "rb") as program_file:
     # #     program_data = program_file.read()
