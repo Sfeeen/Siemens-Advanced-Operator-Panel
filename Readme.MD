@@ -1821,12 +1821,217 @@ If we analyse the regions of this dump now:
 
 The pieces of unknown code are the most interesting and we should be able
 to label them to a certain function.
-Let's now fully reverse this code
+Let's now fully reverse this code.
 
-TO BE CONTINUED
+First I'v put my focus on 
+- 0xFFE000 - 0xFFE3E5. 
+
+This sections decompiles nicely into functions. Reversing the function here was a bit harder
+since it clearly performs some FLASH operations (program / verify) but to understand these you should know
+what addresses the CPU is copying from what to where in the background.
+
+I learned that it's entry point is 0xFFE00E. There it checks if e4 equals 0x7777, if it does it will
+perform the program step, else it will do the erase step. How e4 is set I do not know but for our
+operation it is probably not the value 0x7777 and so performs an erase step. 
+After this flash operation it will send out a byte to SCI2 serial port and then perform an endless loop.
+After erase this byte can be 0xFF (if failure?) or 0xAA (success).
+For the program it can be 0xFF (if failure?) or 0x00 (success).
+
+- <img src="Images/prekernel_revved.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Now the other unknown section is
+- 0xFFB470 - 0xFFC000.
+
+Reversing this takes a lot more effort because this can not but decompiled into functions.
+I can manually define code but then there are bytes that can not be decompiled. It's often (not always) just one byte
+I between some code that is not decompilable. At a certain moment I wanted to transform this hex byte into decimal
+and saw that IDA provides an option to label it as an alignment byte. Also before we already had some hints these 
+could be for alignment.
+<img src="Images/alignment.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+I just assume they are and manually go through the whole sections and try to decompile as much as possible
+here you can see from the bar above that I'm halfway through this process.
+<img src="Images/defining_all_as_code.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+After being done I just had a huge bunch of small snippets of code in this sections. There are some pieces that reference
+eachother but not so many. Also it is not clear if a snippet end where the code flow will get to next...
+Just from eyeballing the whole section we do see references to addresses from the registers area so that
+might be prove that this code is indeed valid code. But I will let reversing it for now...
+
+After some showerthinking I concluded that beside the 2 places in RAM 0xFFB470 - 0xFFC000 and 0xFFE3E5 - 0xFFE800 there might
+actually be another place where some prekernel code might live. If I had to design this chip and I would try my best
+so the prekernel code or mask rom needed to be as secret as possible (to avoid people finding exploit bugs in it) I would load
+it in RAM at the place the microkernel would later overwrite it. So specifically at 0xFFC000 - 0xFFC795.
+Since we only have control as soon as the microkernel runs we cannot make sure this place doesn't get overridden.
+But we can try to override as less as possible.
+
+As being an engineer we get taught that micro is 10 to the power minus 6 which we consider very small let's try to
+make our smallest version of the dumping microkernel: the nanokernel.
+
+The only things we need is the patched version of the function SCI2_transmit_bytes so I copied the bytes over in my hex-editor
+changed it a bit so it loops endlessly and a clear startaddress of dumping is set. 
+I tried it out using my FDT-python imitation and viewed at the serial spy in IO-ninja: after the microkernel transfer
+the microcontroller sends '0xAA' and then stays quiet... hmmm
+Some later I discovered that at the total beginning of the microkernel the TX and RX pins get dissabled! 
+
+<img src="Images/enable_TX.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Off course that's crucial so I prepend these opcodes and try again, no luck again.
+Well now I don't have much ideas anymore, but after I while I figured I could try a NOP-slide. Assumming the microkernel
+might perhaps not be invoked from 0xFFC000 after all but some bytes after. So after prepending a bunch of '0x00' (NOP is 0x00 in H8S opcode).
+I was indeed blessed with the controller spitting out bytes endlessly! For keeping my nanokernel still as small as possible
+I trimmed the NOPs till it stopped working. Finally behold the nanokernel:
+
+<img src="Images/nanokernel.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+This dumping kernel is only 49 bytes long compared to 1749 bytes microkernel.
+
+Short-after update: it was because my python script overrides the start address in the binary at a fixed offset that
+my later kernel-tries did not work. But the NOP's are actually unnecesary and the code does indeed start from 0xffc000.
+
+Performing a clean and dumping RAM gave us:
+<img src="Images/fuzzing.png" alt="AOP Front" title="AOP Front" width="800"/>
+<img src="Images/no_luck_nanokernel.png" alt="AOP Front" title="AOP Front" width="800"/>
+... so no luck, but worth the try.
+
+The setup I have is quite clumsy, it's a big PCB, needs a seperate 5V cable and a programming cable and measuring/altering signals
+is a pain in the ass. 
+<img src="Images/clumsy_setup.jpg" alt="AOP Front" title="AOP Front" width="800"/>
+
+That's why I decided to make my own PCB for this chip. Portable, easy to alter and diagnose some interesting
+signals, that's how I want it. As I might want to try glitching this chip I provide two SMA connectors which can be used (by 
+the chipwhisperer) for crowbar glitching and for powertracing. To have all glitching options I also placed a multiplexer
+so I can try brownout glitching. 
+A second attacksurface I want to investigate is the operating modes and the fact that code could run from a external memory device (often SRAM).
+
+I ended up with this schematic (Kicad files are in this repository):
+<img src="Images/experiment_board_schematic.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+And PCB:
+<img src="Images/experiment_board_PCB.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Two weeks later and I now have my own creation in my hands, the 'H8S/2633F experimental board':
+<img src="Images/H8S_experimental_board.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+For desolding this LQFP-128 pin package from the old PCB I used the hot air station blower and a pair of tweezers.
+For Soldering it back on my own pcb I tried positioned it tightly and tried blowing it on with hot air as well but that didn't do much
+The pins have different height because there is still older solder attached. Its also not easy to have this liquid all simultaneous.
+I chose to solder it using plenty solder and stroking it on one side making sure each pin is attached. Then I 
+stroke it again with a clean spoon-tip and this multiple times until the excessive solder is gone.
+Then I cleaned the flux and solder residue with some PCC brush, after which I was going to check under a microscope if every pin
+is indeed soldered! BUT YOU SHOULD DO IT THE OTHER WAY AROUND! The PCC brush bends all the pins that are not soldered correctly... 
+I managed to straighten them and fix the mess I've made. Finally the chip seemed to be soldered OK.
+
+Being able to program the chip didn't work at first time either. But I of course had a working board to compare with.
+I learned that pin MD2 needs to be low and FWE high. This is attached to my dipswitches so easy fix and boom that works!
+
+The fact that MD2 needs to be low when programmed is a surprise. That FWE needs to be high I understand,
+without it being high it is not able to program or erase the memory.
+When MD2 is low, and MD0, MD1 are high we are in mode 3 according to the datasheet. A mode that doesn't seem available
+in the H8S/2633 Group...
+<img src="Images/mode_3_for_programming.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Okay, it seems this is the general setting for boot-mode:
+https://community.renesas.com/the_vault/other_products/h8/f/h8---forum/14376/h8-2633-serial-programming
+<img src="Images/MD2_low_boot_mode.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Today I received the LEDS for my PCB, see how coool:
+<img src="Images/PCB_LEDS.png" alt="AOP Front" title="AOP Front" width="800"/>
+Well I know, you guys just see one bright lightspot, damn camera!
+
+The leds represent the signal on 7 pins of the microcontroller. Depending on the mode selected they form
+the address lines A0 - A7 for some external memory. Note that this is only a part of all the address lines, they go untill A19. 
+<img src="Images/address_lines.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Already a first simple test that we can do using this leds is program the controller with the buzzer program, it then toggles
+pin A6 (Which is connected to a LED) a bunch. We are currently running in Mode 7 (No external address space).
+We have this interesting piece of the manual that says 'Do not change the inputs at the mode pins during operation':
+
+<img src="Images/do_not_change_mode_pins.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Well it's my chip, lets do what I want and change the mode to mode 5 and 6: The leds change clearly.
+Going back to mode 7 sometimes makes  the original buzz program beep further, or somethings seems to be stuck in a certain state.
+Anyway it seems like these mode pins are constantly monitored by the CPU and that you can live changes the mode of this chip.
+This is interesting behavior for our goal, but I want to pick this up later again and first walking the glitching route!
+
+# Glitching
+
+As having no experience in glitching a microcontroller let's approach this step by step. What I do have is this microcontroller
+exploit book that I mentioned before. Page 131 is what I need:
+<img src="Images/basic_glitch.jpg" alt="AOP Front" title="AOP Front" width="800"/>
+
+The first act of glitching was to break out of an infinite while loop (called 'unlooping' back then). That's a good first
+step since the timing of our glitch is not really relevant. We can tune our duration of our glitch in this first step before moving on.
+
+Let's first write our loop function. We turn on A5 and if we manage to glitch out of our loop we turn on A6 (our buzzer).
+I settled with this code:
+```
+volatile int looped;  
+
+void main(void)
+{
+	looped = 1;
+	
+	// Set PC4, PC5 and PC6 as an output pin
+    PC.DDR |= (1 << 6);  
+	PC.DDR |= (1 << 5);  
+	PC.DDR |= (1 << 4);  
+	
+	PC.DR.BIT.B6 = 0; // PC6 low means LED is on (attached to VCC), but buzzer is off 
+	PC.DR.BIT.B4 = 0; // A4 led on
+	PC.DR.BIT.B5 = 1; // A5 led off
+	
+	while(looped){}
+	
+	PC.DR.BIT.B6 = 1; // Buzzer on
+	PC.DR.BIT.B4 = 1; // A4 led off
+	PC.DR.BIT.B5 = 0; // A5 led on
+
+
+}
+```
+
+As you can see I defined the variable looped as volatile. If this old compiler would be somewhat 'smart' and I didn't use volatile it could have
+optimized the binary to not have the loop functionality and no code to turn on the buzzer because it could never be reached.
+
+For good measure I still check the binary I flashed so I'm certain the assembly instructions I want to glitch are there.
+<img src="Images/check_loop_firmware.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Good, the board is flashed with this constant loop, what now? 
+Well lets look at our setup:
+<img src="Images/current_power_supply_setting.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+The CORE_VOLTAGE signal is attached to our SMA-connector. I provided so I can easily connect it to a Chipwhisperer lite 
+that I can use. This signal is fed from the 3V3 power supply and is meant to power the core.
+There is a 0R resistor, I've put it there because I might change it to e.g. 100R later and use it for power tracing.
+
+We have a 100nF capacitor which I will remove so the glitch should be steeper and thus better.
+and then it feds the VCL and VCC pin with its voltage.
+
+Looking at the pin definitions:
+<img src="Images/pin_functions_VCL.png" alt="AOP Front" title="AOP Front" width="800"/>
+As you see I designed it incorrectly... What I did was copy the design from reference board I had so
+that one didn't follow the advice from the datasheet as well. But I guess it doesn't really matter that much for normal use.
+
+As I understand it, it works like this:
+<img src="Images/cpu_reg.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+So what I will do for my board:
+- remove my 100nF capacitor
+- open the solderjumper to VCC
+- Glitch!
+
+
+
 ---------------------------------------------------------------------------------------
-
-0xFFE000 - 0xFFE3E5 unknown code -> indeed code, something with flash memory
 Try building erase module with symbosl: H8Sruntime.lib not found
+
+set PATH="C:\Users\Sven Onderbeke\Desktop\1_0_00\bin";%PATH%
+set PATH="C:\Program Files\Renesas\Hew\Tools\Renesas\H8\6_2_1\bin";%PATH%
+set INCLUDE=C:\Users\Sven Onderbeke\Desktop\1_0_00\include;%INCLUDE%
+
+lbg38 -output=H8Sruntime.lib -head=runtime -cpu=2600A -include="C:\Program Files\Renesas\Hew\Tools\Renesas\H8\6_2_1\include"
+FWE pin might be interesting
+if FWE low: erase fails, instead of 0xAA , 0xFF 
 
 

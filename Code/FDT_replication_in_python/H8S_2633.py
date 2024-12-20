@@ -23,15 +23,15 @@ def bit_rate_matching(ser):
     while attempts < max_attempts:
         # Send zero byte for bit rate matching
         ser.write(zero_byte)
-        print(f"Attempt {attempts + 1}: Sent 0x00")
+        # print(f"Attempt {attempts + 1}: Sent 0x00")
         time.sleep(0.1)
 
         # Check for response
         if ser.in_waiting > 0:
             response = ser.read(1)
-            print(f"Received: {response.hex()}")
+            # print(f"Received: {response.hex()}")
             if response == zero_byte:
-                print("Bit rate matching successful!")
+                # print("Bit rate matching successful!")
                 return True
 
         attempts += 1
@@ -39,32 +39,37 @@ def bit_rate_matching(ser):
     print("Bit rate matching failed.")
     return False
 
-def auto_bit_rate_matching(port):
+def auto_bit_rate_matching(port, close=True, arduino_port=None):
     # Bit rate matching and initial communication at 9600 bps
     baud_rates = [9600, 4800, 1200]
 
-    print(port)
+    # print(port)
     for baud_rate in baud_rates:
-        print(f"Trying bit rate matching at {baud_rate} bps...")
+        # print(f"Trying bit rate matching at {baud_rate} bps...")
         ser = configure_serial_connection(baud_rate, port)
 
         # Perform bit rate matching
         if bit_rate_matching(ser):
             return ser
         else:
-            ser.close()
-            raise Exception("Auto bit rate matching failed...")
+            if close:
+                ser.close()
+                raise Exception("Auto bit rate matching failed...")
+            else:
+                reset_2633(arduino_port)
+                time.sleep(0.1)
+                return auto_bit_rate_matching(port, close=close, arduino_port=arduino_port)
 
 
 def send_and_receive_data(ser, data_to_send, expected_response_length):
     # Send data
     ser.write(data_to_send)
-    print(f"Sent: {data_to_send.hex()}")
+    # print(f"Sent: {data_to_send.hex()}")
 
     # Receive data
     time.sleep(1)  # Small delay to give time for the microcontroller to respond
     received_data = ser.read(expected_response_length)
-    print(f"Received: {received_data.hex()}")
+    # print(f"Received: {received_data.hex()}")
 
     return received_data
 
@@ -208,7 +213,7 @@ def upload_page(ser):
     # Receive data
     time.sleep(1)  # Small delay to give time for the microcontroller to respond
     received_data = ser.read(5)
-    print(f"Received: {received_data.hex()}")
+    # print(f"Received: {received_data.hex()}")
 
 
     # Check how many bytes are available to read
@@ -359,7 +364,113 @@ def find_next_different_byte(file_path, start_address):
         return f"An error occurred: {str(e)}"
 
 
+def download_nano_kernel(port, start_address_long_hex=f"00FFB000"):
 
+    ser = auto_bit_rate_matching(port)
+
+    import os
+    import struct
+    import time
+    from shutil import copyfile
+
+    def hex_to_bytes(hex_str):
+        # Convert the hex string to a byte array
+        return bytes.fromhex(hex_str)
+
+    # Paths for original and modified nanokernel files
+    original_kernel_path = "kernel/2633_nano_kernel/nanokernel.bin"
+    modified_kernel_path = f"kernel/2633_nano_kernel/nanokernel_{start_address_long_hex}.bin"
+
+    # Copy the original file to create a modifiable copy
+    copyfile(original_kernel_path, modified_kernel_path)
+
+    # Modify the nanokernel file
+    start_address_bytes = hex_to_bytes(start_address_long_hex)
+    if len(start_address_bytes) != 4:
+        raise ValueError("start_address_long_hex must be 8 hex characters long (4 bytes).")
+
+    with open(modified_kernel_path, "r+b") as f:
+        # Read the file data
+        data = f.read()
+        if len(data) >= 8:  # Ensure the file is large enough to modify
+            f.seek(6)  # Move to the 3rd byte (index 2, 0-based indexing)
+            f.write(start_address_bytes)  # Overwrite the next 4 bytes with the address
+        else:
+            raise ValueError("Nanokernel file is too small to modify the specified bits.")
+
+    print(f"Modified nanokernel file saved at: {modified_kernel_path}")
+
+    write_control_program_transfer(ser, modified_kernel_path)
+
+    # Ensure the dump_receives directory exists
+    os.makedirs("dump_receives", exist_ok=True)
+
+    # Open the file and receive data
+    received_filepath = f"dump_receives/{time.time()}_start_address_{start_address_long_hex}.bin"
+
+    with open(received_filepath, "ab") as f:
+        while True:
+            if ser.in_waiting:  # Check if data is available
+                byte = ser.read(1)  # Read one byte
+                print(f"Received byte: {byte.hex()}")  # Print byte in hex format
+                f.write(byte)  # Append the byte to the file
+                f.flush()  # Ensure the data is written to disk immediately
+
+    print(f"Received data saved at: {received_filepath}")
+
+
+
+def fuzz_prekernel(port, arduino_ser):
+    # reset_2633(arduino_port)
+    # time.sleep(1)
+
+    # try different handshake start codes
+    try:
+        for start_handschake_value in range(0, 255):
+            # print(f"Handshake value: ", start_handschake_value)
+
+            time.sleep(0.1)
+            ser = auto_bit_rate_matching(port, close=False, arduino_port=arduino_ser)
+
+            start_code = bytes([start_handschake_value])
+            rdata = send_and_receive_data(ser, start_code, 1)
+
+            print(start_handschake_value, rdata)
+            if len(rdata) > 0:
+                print("JAAAAAAAAAAAAAAAaaaaa")
+            ser.close()
+
+            reset_2633(arduino_ser)
+            time.sleep(1)
+
+    except Exception as e:
+        print(str(e))
+        reset_2633(arduino_ser)
+
+
+def reset_2633(arduino):
+    try:
+        if arduino.is_open:
+
+            # Character to send
+            character = 'S'  # Replace with any character you want to send
+            # print(f"Sending character: {character}")
+
+            # Send the character
+            arduino.write(character.encode())
+
+            # Read and print the response from the Arduino
+            time.sleep(0.1)  # Allow time for Arduino to respond
+            # Read the entire line from the Arduino
+            response = arduino.readline().decode('utf-8', errors='replace').strip()
+            # print(f"{response}")
+        else:
+            print("Arduino is not connected.")
+
+    except serial.SerialException as e:
+        print(f"Error connecting to Arduino: {e}")
+    except KeyboardInterrupt:
+        print("\nExiting program.")
 
 # Main function to start the communication process
 if __name__ == "__main__":
@@ -370,13 +481,22 @@ if __name__ == "__main__":
     # result = find_next_different_byte(file_path, start_address)
     # print(result)
 
+    arduino_ser = serial.Serial('COM18', 9600, timeout=1)
+    time.sleep(2)
+
+
+    reset_2633(arduino_ser)
+    cp = get_com_port()
+    fuzz_prekernel(cp, arduino_ser)
 
     # # Usage
     # # combine_files('kernel/2633_micro_kernel/uGen2633_original.cde', 'kernel/2633_main_kernel/Genm2633.cde', 'kernel/2633_both_kernels/combined_kernels')
     #
-    cp = get_com_port()
 
-    communicate_with_device(cp)
+    # cp = get_com_port()
+    # download_nano_kernel(cp)
+
+    # communicate_with_device(cp)
     #
     # # with open("kernel/2633_main_kernel/communicated_main_kernel.bin", "rb") as program_file:
     # #     program_data = program_file.read()
