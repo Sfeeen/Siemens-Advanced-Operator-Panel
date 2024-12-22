@@ -2021,6 +2021,8 @@ So what I will do for my board:
 - open the solderjumper to VCC
 - Glitch!
 
+<img src="Images/glitch_setting_options.png" alt="AOP Front" title="AOP Front" width="800"/>
+
 
 
 ---------------------------------------------------------------------------------------
