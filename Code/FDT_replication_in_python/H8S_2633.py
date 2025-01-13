@@ -23,15 +23,15 @@ def bit_rate_matching(ser):
     while attempts < max_attempts:
         # Send zero byte for bit rate matching
         ser.write(zero_byte)
-        # print(f"Attempt {attempts + 1}: Sent 0x00")
+        print(f"Attempt {attempts + 1}: Sent 0x00")
         time.sleep(0.1)
 
         # Check for response
         if ser.in_waiting > 0:
             response = ser.read(1)
-            # print(f"Received: {response.hex()}")
+            print(f"Received: {response.hex()}")
             if response == zero_byte:
-                # print("Bit rate matching successful!")
+                print("Bit rate matching successful!")
                 return True
 
         attempts += 1
@@ -481,13 +481,15 @@ if __name__ == "__main__":
     # result = find_next_different_byte(file_path, start_address)
     # print(result)
 
-    arduino_ser = serial.Serial('COM18', 9600, timeout=1)
-    time.sleep(2)
+    # arduino_ser = serial.Serial('COM18', 9600, timeout=1)
+    # time.sleep(2)
+    #
+    #
+    # reset_2633(arduino_ser)
+    # cp = get_com_port()
+    # fuzz_prekernel(cp, arduino_ser)
 
-
-    reset_2633(arduino_ser)
-    cp = get_com_port()
-    fuzz_prekernel(cp, arduino_ser)
+    ser = auto_bit_rate_matching('COM16')
 
     # # Usage
     # # combine_files('kernel/2633_micro_kernel/uGen2633_original.cde', 'kernel/2633_main_kernel/Genm2633.cde', 'kernel/2633_both_kernels/combined_kernels')
