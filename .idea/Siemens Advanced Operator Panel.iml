@@ -3,8 +3,10 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/venv" />
+      <excludeFolder url="file://$MODULE_DIR$/Code/glitching/glitch_dumps" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.10 (Siemens Advanced Operator Panel)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.9 (Siemens-Advanced-Operator-Panel)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

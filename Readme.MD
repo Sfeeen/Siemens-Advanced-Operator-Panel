@@ -2003,7 +2003,7 @@ Well lets look at our setup:
 
 The CORE_VOLTAGE signal is attached to our SMA-connector. I provided so I can easily connect it to a Chipwhisperer lite 
 that I can use. This signal is fed from the 3V3 power supply and is meant to power the core.
-There is a 0R resistor, I've put it there because I might change it to e.g. 100R later and use it for power tracing.
+There is a 0R resistor, I've put it there because I might change it to e.g. 50R later and use it for power tracing.
 
 We have a 100nF capacitor which I will remove so the glitch should be steeper and thus better.
 and then it feds the VCL and VCC pin with its voltage.
@@ -2022,6 +2022,150 @@ So what I will do for my board:
 - Glitch!
 
 <img src="Images/glitch_setting_options.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Using `scope.glitch.trigger_src = "continuous"` I quite fast had my board glitched successfully without the need of tuning certain parameters.
+It was quite enjoyfull that this first step went so smooth. Also I advice anyone when trying to glitch a custom board to toggle
+some colorsfull leds on and/or off. For me 2 blue leds are one during the loop and when glitched successfully they go off and the green led goes on.
+plus the buzzer starts to beep. I find it quite satisfying Having this visual and auditive feedback. 
+
+Here you can see my first voltage glitch success:
+<img src="Images/first_glitch.jpg" alt="AOP Front" title="AOP Front" width="800"/>
+
+Now I want to optimise the glitch width to see what is the most effective. To perform tests on different widths I also need
+the chipwhisperer to be able to reset the MCU itself after a successfull glitch. Now I really need read the docs
+and get more aware of all the parameters and possibilities:
+https://chipwhisperer.readthedocs.io/en/latest/scope-api.html#scope-glitch
+
+The docs and the glitch options all seemed quite clear to me but still I had quite a struggle getting things to work as I wanted.
+My biggest mistake was going for  `scope.glitch.trigger_src = "glitch_only"` and wanting to use `scope.glitch.width` and `scope.glitch.offset`
+to take care of the width and offset of the glitch. Which seemed quite logical to me. But when crossing through some chipwhisperer courses I read:
+
+<img src="Images/use_repeats.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+
+So since I'm not using the clock of the Renesas CPU I should use `glitch_enable`, `repeat` and `ext_offset`.
+
+To get to an interesting width (repeat value) I perform 100 random glitches for a `scope.glitch.repeat`-value of 1 untill 100.
+
+<img src="Images/glitch_repeat_test.jpg" alt="AOP Front" title="AOP Front" width="800"/>
+
+<img src="Images/repeat_test_graph.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Now let's do this again for a range of 5 - 40 and this time 300 tries per value:
+<img src="Images/5_to_40.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Hmm it seems not so consistent comparing this against the previous chart. 
+Let's do it once more from 10 to 50, 1000 tries per setting. Now I also changed my Y-axis to represent the percentage of 
+ glitches that were successfull.
+
+<img src="Images/10_50_1000.png" alt="AOP Front" title="AOP Front" width="800"/>
+Okay, I conclude the sweet spot is between 37 and 47. Also I'm quite happen with a successrate above 20%. Taking into account we are
+constantly executing the two assembly instructions of the while function and only one of them can cause the glitch we need
+makes me think that, if we would achieve accurate timing we could glitch an instruction successfully +40% of the time!
+
+The chipwhisper LITE has in internal clock of 96Mhz, so a period of 10.42ns. A repeat value of 1 seems to equal a glitch with the duration of 1
+clock period. Let's use repeat = 43 as our optimal with then we have a glitch of 448ns. Our board clocked at 24Mhz has a period of 
+around 42ns. Appearently glitching for 10 clockcycles is a valid thing to do...
+
+<img src="Images/optimal_glitch_repeat.jpg" alt="AOP Front" title="AOP Front" width="800"/>
+
+Okay Glitching phase 2: 
+I might now try to find a good offset to glitch a certain instruction starting from a certain trigger signal
+but I'm not sure that I really need that here. There is no anti-upload fuse setting that I need to glitch
+some time after the MCU startup, no but what can be interesting is serial transmissions.
+
+If we have a 'transmit bytes' function like we have seen in the kernels, then the start address and the amount of bytes to send gets loaded in some registers.
+If we can perform a glitch when the transmit amount gets set, corrupting this value then we might actually transmit more 
+data from memory then was intended. Let's create such a function and try to glitch it and see what happens.
+
+As we already know, the first thing that happens at boot is the erase. The first byte that gets
+transmitted by the CPU when connecting in bootmode is 0xAA meaning successfull erase.
+But when the FWE pin is low, erase is not possible and we get 0xFF instead. Glitching the amount value before this transmission
+could be a universal exploit to retrieve original code from the H8S chips, and since erasure is not possible 
+we can try as much as we want. But let's not get ahead of ourselves and first try glitching some normal serial transmission.
+
+I made my own glitchable program around the Put function I found before in the kernel source code.
+
+<img src="Images/put_function.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+The tests I did to find a good glitch for this function are quite chaotic and I wasn't to focused
+in properly noting down my results.
+
+But many hours put into little words: 
+I wrote some python code / Jupiter notebooks (can be found under /code/glitching/) to test a certain parameterspace
+on a certain glitch. Apart from a glitch width and offset you could actually see much more parameters:
+- The core voltage level: I have a lineair power supply with a trimpot which allows me to change the default 3V3 core voltage. E.g. lower
+it to just above the voltage at which the chip fails
+- The length of the glitch COAX cable. I first had one of 16cm and then bought one of 8cm.
+- Instead of crowbar glitching (glitching to ground) I had the ability on my board to also test brownout glitched by using the fast analog switch to toggle between the normal voltage
+and a second brownoutvoltage to glitch the system. Both voltage rails could be configured seperately (another parameter so you will).
+For this I configured HS2 of the chipwhisperer to toggle my analogue switch.
+- I tried inputting the Renesasclock to the chipwhisperer to have a better timed glitch.
+- I tried having the chipwhisperer generate the 24Mhz clock for the chip. Ditching the crystall on my pcb.
+  - With that I also tried glitching when underclocking and overclocking the chip.
+- For some settings I also used the width and offset parameter apart from the repeat and ext_offset values.
+
+So those were a lot of test but the results mostly never spoke out so I didn't bother much and
+just tuned my parameters a bit for the next test. 
+
+Though I do have some 'results' I can show.
+This was my plot (offset vs repeat) for a certain range, conclusion: 
+these parameters in this doesn't matter, if performed several times you always get a glitch?
+This was for the loop-program though, at a certain moment I want back glitching this one again.
+<img src="Images/200x200_noise.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+From the following I assummed the lower repeat values (< 25) were better:
+
+<img src="Images/lower_better.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Then some results from another program I glitched, still before glitching the PUT-function.
+It was a count in a double loop of 50 which should result in 2500 if not been glitched.
+For this one I was using a trigger signal I created as for the looped program I just glitched randomly
+
+<img src="Images/calculation_program.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Most results I saved didn't say much:
+<img src="Images/y_repeat_x_offset.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Then when I decided to glitch the transmit function I charted the amount of glitched bytes regarding my repeat 
+value.
+Two big test I ran seemed to favour higher repeat values. 
+It seemed not so logical to me so I though maybe the continuous glitching warms the chip and 
+the better results could be more linked to the higher temperature than to the used repeat value?
+I really have no clue. I could have ran the same test in reverse to settle this though but I didn't.
+<img src="Images/temperature_matters_qm.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+The second one was similar though I think the X-axis here was actually the ext_offset instead of the repeat
+I concluded again that offset didn't matter much but that if I wanted to glitch to whole memory 
+I should glitch at a low offset value. This I could understand since shortly after my trigger signal
+the value of amount of bytes to transfer is passed as through a register to this function. If we glitched with a low offset value I
+assume we really glitch this 'amount' value. Though when glitching further in the loop we still are able to spit out several bytes
+but I assume we don't glitch the amount value. I guess most of the time in this Put-function is spend waiting till the transmit is ended (TEND).
+<img src="Images/most_bytes_low.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Even though the glitches were often successfull, they where far of glitching the whole chip content.
+In the chart above I was getting a small 900 bytes max whereas the 24bit addressable chip holds
+16MB of data.
+
+I continued trying glitches at these low offsets though and saved the glitched data to a file.
+After some tweaking and several runs my luck got great enough to have big glitches. Having one that
+glitched almost 70 MB. 
+
+<img src="Images/saved_glitch_bytes.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+While in some other files the data was not always consistent, it seems to be consistent in the 3 largest
+dumps I was able to make. Also I was able to found 'SVEN' multiple times in the dump, always surrounded by visually the same data
+clearly meaning we looped the whole memory region multiple times. 
+
+<img src="Images/consistent_data.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+From this datadump we would be able to parse the rom section and write a new chip with the same logic.
+But this was just the dump of my own made program that transmits something.
+
+Next up is trying to glitch the chip it boot mode, on the moment it transmits the '0x00' after 
+a successfull bit rate matching 
+
+
 
 
 
