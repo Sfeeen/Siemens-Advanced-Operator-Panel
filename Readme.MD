@@ -2154,7 +2154,7 @@ glitched almost 70 MB.
 <img src="Images/saved_glitch_bytes.png" alt="AOP Front" title="AOP Front" width="800"/>
 
 While in some other files the data was not always consistent, it seems to be consistent in the 3 largest
-dumps I was able to make. Also I was able to found 'SVEN' multiple times in the dump, always surrounded by visually the same data
+dumps I was able to make. Also I was able to find 'SVEN' multiple times in the dump, always surrounded by visually the same data
 clearly meaning we looped the whole memory region multiple times. 
 
 <img src="Images/consistent_data.png" alt="AOP Front" title="AOP Front" width="800"/>
@@ -2163,12 +2163,83 @@ From this datadump we would be able to parse the rom section and write a new chi
 But this was just the dump of my own made program that transmits something.
 
 Next up is trying to glitch the chip it boot mode, on the moment it transmits the '0x00' after 
-a successfull bit rate matching 
+a successfull bit rate matching.
 
+I had converted my setup to perform this glitch: A minimum of 3 0x00 bytes needed to be transmitted
+for the chip to respond with a 0x00-byte meaning it has matched its bitrate.
+In the image below my Chipwhisperer's TX is yellow channel. Renesas chip's TX is the blue channel
+and purple if my core voltage supply.
 
+<img src="Images/glitch_brm.jpg" alt="AOP Front" title="AOP Front" width="800"/>
 
+I meant to glitch after the rising edge of the third 0x00-byte and before the falling edge of the returned 0x00-byte
+but in the previous image you see a glitch after each transmitted 0x00-byte because I didn't figure
+out directly how to achieve a glitch at that point only. The CWLITE provides a glitch on edge-trigger
+but then the glitch occurs after each edge it sees. Only in the Husky (CWLITE's more expensive brother) you can limit
+at what amount of edges it should glitch. Fortunately you can put EXT_OFFSET really high so its ofset is the time of the three 0-bytes
+and than it will only glitch once.
 
+First I did some gross tinkering without much success. Then I let a bigger glitch-test run for several days
+also without success. 
+I didn't find any evidence but the thing I feared for seemed to be true:
 
+<img src="Images/brm_hardware.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+The process of bit rate matching is probably not achieved by some piece of code timing the low-level durations of the RX pin with a timer
+but by some independant hardware that eventually sets some SCI registers that the CPU can access.
+
+29/05/25
+
+4 months passed. Not that I lost interest, I was just working on a side project that might help me here.
+
+My general idea of dumping the firmware is exploiting the fact that we as a user are in control of setting the operation mode of the microcontroller we want to dump. If we set it in operation mode 6 it runs from internal rom but a later memory region is mapped to external memory. External memory is also in our control: we can program it as we want. So we might program a NOP-slide with at the and code the dump the chip. If the original program was really big it might enter the NOP-slide by itself. But if not we should glitch a jump instruction to jump somewhere in this memory region.
+
+The side project, which I call 'PMT Leech' might help me to debug and see whats happening. The idea is that a clipper clips to the external memory and that my hardware is spying all address reads and writes and sends them to my pc. On my pc I would than be able to see where the microcontroller is in the firmware and which steps where taken. When glitching I would be able to see what instruction was actually glitched and what the result of it was.
+
+That's the idea that I had. I was quite aware that it would be a challenge to make hardware that would be able to keep up with 16Mhz instructions: for each instruction reading in time the address lines, data lines, control lines and sending this data to a pc program. 
+I thought my microcontroller - PC communication would be the bottleneck so I went for Ethernet communication and bought a STM Nucleo board to experiment with, which support up to 100Mbps data transfer. After getting aware this 100Mbps transfer rate is the max value and where would be much overhead in the ethernet protocol I realised USB might be my go-to.
+An FPGA with USB3.0 communication would seal the deal perfectly, I assume. Though this would take me forever to implement. I have no proper FPGA programming experiance and from some research it seems there is no publicly available IP for using USB3.0 on FPGA.
+Some time later I realised the mighty Teensy 4.1's serial is not some standard serial. It is an USB serial object which can transfer at USB 2.0 speeds (480 Mbit/s).
+https://www.pjrc.com/teensy/td_serial.html
+And not to be neglected: it is easy to use. Perfect!
+
+First up I made some Teensy - PC speed tests to see what actual data speeds I could get. At first I wrote them in python and got serveral Mbps transfer speed, I concluded the receiving logic might be the culprit. Writing the logic in C++ would result in more efficient handling of the USB serial traffic. When written in C I got:
+
+<img src="Images/c_code.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+Not bad but also not great. I was transmitting a 512 byte buffer from the teensy out and got 25 Mbps. The Teensy got really hot actually after several seconds so I also applied a heatsink to it. 
+After some further optimizations and tests I concluded I wasn't going to cut it this way. 
+
+If the amount of data I need to process per time is to much maybe I should slow down the data? Another thing in our control is the clock-signal the CPU uses. We might provide it with a slower clock and so the whole data transfers go slower, giving use more time to capture them and transmit to a PC. I tested the concept by applying a signal from a generator to a CPU and saw that indeed the spread of the /OE signals became bigger while the board still worked as intended (but slower). 
+
+I thus compromised on having the MCU run at its original frequency, the downside is that it gets less responsive or timed external communication e.g. UART will stop working at the usual baudrate. But the upside takes the upperhand I'd say: controlling the clock gives use the ability to step/debug the microcontroller. So we could nicely follow each instruction and even put hardware breakpoints without needing a specific debugger for the microcontroller or needing the original sourcecode. With the right logic we just pause the clock signal when it has accessed the instruction we configured it to break on.
+
+Also more specifically, instead of instruction stepping we could perform clock-stepping. Since 1 instruction might need 4 clock cycles to perform. This is interesting in regard to possible glitch-attacks. We will perform tests: When we break on for example a jump instruction and supply a brownout voltage during a cycle of this instruction we will see if we are able to perform a fully controlled glitch. 
+
+This is the hardware I made:
+<img src="Images/image_PMT_leech_hardware_in_use.png" alt="AOP Front" title="AOP Front" width="800"/>
+
+It goes together with some C++ written software:
+
+![alt text](Animation.gif)
+
+Now after a lot of developping this hardware/software does mostly work. I could try it on my H8S/2633F experiment board! Unfortunately my hope for hapiness was shortlived: When developping this board I did think about putting a socket and footprint to be able to run code externally, but did not think much abouth the needed connections:
+![alt text](RAM_connections_bad.png)
+
+The microcontroller is 16-bit and is mainly ment for 16-bit accessing: ![alt text](valid_strobes.png)
+
+In mode 5/6 it can start in 8-bit mode but than I should use /HWR as the /WE line (I used /LWR) and use the upper data bits (D15-D8) instead of the lower ones I attached...
+
+I couldn't think about a quick fix to still be able to perform a test with my PMT Leech. soldering the extra wires to 8 adjacent pins is not in my ability and wouldn't last long. I had no other choice than to design a new PCB.
+
+TODO write from here
+![new_pcb_w_analog_discovery.jpg](Images%2Fnew_pcb_w_analog_discovery.jpg)
+![waveforms_pmt_debug.png](Images%2Fwaveforms_pmt_debug.png)
+![waveforms_pmt_debug_2.png](Images%2Fwaveforms_pmt_debug_2.png)
+![waveforms_pmt_debug_3.png](Images%2Fwaveforms_pmt_debug_3.png)
+![waveforms_pmt_debug_4.png](Images%2Fwaveforms_pmt_debug_4.png)
+![minimal_blink.png](Images%2Fminimal_blink.png)
+![minimal_blink_pmt.png](Images%2Fminimal_blink_pmt.png)
 ---------------------------------------------------------------------------------------
 Try building erase module with symbosl: H8Sruntime.lib not found
 
