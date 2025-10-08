@@ -2234,12 +2234,135 @@ I couldn't think about a quick fix to still be able to perform a test with my PM
 
 TODO write from here
 ![new_pcb_w_analog_discovery.jpg](Images%2Fnew_pcb_w_analog_discovery.jpg)
-![waveforms_pmt_debug.png](Images%2Fwaveforms_pmt_debug.png)
-![waveforms_pmt_debug_2.png](Images%2Fwaveforms_pmt_debug_2.png)
-![waveforms_pmt_debug_3.png](Images%2Fwaveforms_pmt_debug_3.png)
-![waveforms_pmt_debug_4.png](Images%2Fwaveforms_pmt_debug_4.png)
-![minimal_blink.png](Images%2Fminimal_blink.png)
-![minimal_blink_pmt.png](Images%2Fminimal_blink_pmt.png)
+![waveforms_pmt_debug.png](Images/waveforms_pmt_debug.png)
+![waveforms_pmt_debug_2.png](Images/waveforms_pmt_debug_2.png)
+![waveforms_pmt_debug_3.png](Images/waveforms_pmt_debug_3.png)
+![waveforms_pmt_debug_4.png](Images/waveforms_pmt_debug_4.png)
+![minimal_blink.png](Images/minimal_blink.png)
+![minimal_blink_pmt.png](Images/minimal_blink_pmt.png)
+
+was able to easily step through the code while being underlocked at 1khz. Though not always superstable
+
+I modified the code to try brownoutglitching while stepping: no success. added extra capacitance instead of removing
+so the voltage are stable.
+
+Skipped the glitching at started to tryout the idea of reading out the internal rom from the external rom.
+
+I wrote some 'secret' code that I put into internal ROM:
+
+ ```
+void main(void)
+{
+	P1.DDR |= (1 << 1);  // Configure P11 (A21) as output
+	P7.DDR |= (1 << 4);  // Configure P74 (/MRES) as output
+	
+	P1.DR.BIT.B1 = 0;    // set P11 LOW
+	
+	InitSCI();
+	
+	text_write("recover this secret code!\r\n");
+	while (1) {
+        P7.DR.BIT.B4 ^= 1;  
+    }
+	
+}
+ ```
+
+Then I write some code for on the external ROM: 
+ ```
+void main(void)
+{
+	P1.DDR |= (1 << 1);  // Configure P11 (A21) as output
+	P7.DDR |= (1 << 4);  // Configure P74 (/MRES) as output
+	
+	P1.DR.BIT.B1 = 1;    // set P11 HIGH
+	
+	InitSCI();
+	
+	text_write("dumping started\r\n");	 
+	
+	for (address = ROM_START_ADDRESS; address <= ROM_END_ADDRESS; address++) {
+		char_write(*((unsigned char *)address));
+    }
+
+    text_write("dumping done!\r\n");
+}
+ ```
+All UART output is put on both SCI0 and SCI2.
+When the extROM chip is in place I put my board into mode 6 so it's starts running from internal code but can
+also access the external ROM mapped at H'040000.
+
+If we run the program we off course see:
+![recover_secret_code.png](Images/Frecover_secret_code.png)
+By itself the code never goes into the H'040000 region
+
+also don't just make nop slide and this code that dumps, it doenst work when put at H'040000
+because of the way it addresses
+
+Tried using the assembly code from above and adding a nopslide to have a big area which will result in a dump
+but that didnt work because a there are a lot of call to static addresses. 
+Instead I reused the nanokernel, added code to turn the led on and change from SCI2 to SCI0.
+I also added the assembly for the initsci0 and then prepended the whole thing with nops so my file size is 0x2000 (The size of the external ROM I am using)
+
+After letting it glitch for a day I suspected there is something wrong in my approach, because glitching this chip is fairly easy.
+
+I decided to update the code on the internal ROM to print the 0x2000 bytes starting from 0x040000 and to manually jump to there.
+Here is the update:
+
+ ```
+	text_write("recover this secret code!\r\n");
+	
+		// Read and display first few bytes of external ROM
+    text_write("External ROM contents:\r\n\r\n");
+	for (i = 0; i < 0x2000; i++) {
+	    char byte = *((unsigned char *)(0x040000 + i));
+	    char_write(byte);
+	}
+	text_write("\r\n\r\nDone dumping\r\n\r\n");
+	
+	text_write("jump to 0x041E00!\r\n");
+	jump_to_address = (void (*)(void))0x041E00;
+    jump_to_address(); // jumps to address 0x040000
+	
+
+	text_write("back from jump to 0x041E00!\r\n");
+ ```
+
+In dual mode the led still didn't go on. I debugged this code in HEW and there it indeed jumps to 0x040000 so it seemed
+somewhat correct.
+Attaching the PMTLeech now to see the transactions might help. I did so and did not see any transactions...
+Let's go check in the mighty manual if there is something of mode 6 that I am missing.
+When I found out it seemed kind off logical, but I didn't think of this beforehand:
+![mode6.png](Images/mode6.png)
+![mode6_2.png](Images/mode6_2.png)
+![mode6_3.png](Images/mode6_3.png)
+![mode6_4.png](Images/Fmode6_4.png)
+
+Even though you can access all external ROM in mode 6 you still have to manually in the internal ROM run some code
+to 'enable' the addresses and chip select...
+This is a bummer in regard to our current approach to recover internal ROM code. If the original code does not use the pins as addresses
+we won't be able to use a malicious external rom combined with mode 6 to recover the code...
+
+But let's first test that with these address pins and chip select enabled our setup does what we expected it to do.
+I added to the code:
+
+	PC.DDR = 0xFF; // set address pins A0 - A7 as address pins
+	PG.DDR |= (1 << 4);  // Configure PG4 (/CS0) as output
+
+Before vacay:
+started to do so but didnt finish, didnt work yet.
+
+After vacay: 
+Started examining Mode Control Register MDCR
+bit 7 is reserved / writable : what would it do?
+
+After some long time 08/10/2025
+Try to read SRAM with flexpcb even though both SRAM batterys are empty
+
+![tsop_reader_1.jpg](Images%2Ftsop_reader_1.jpg)
+![tsop_reader_2.jpg](Images%2Ftsop_reader_2.jpg)
+![tsop_reader_3.jpg](Images%2Ftsop_reader_3.jpg)
+
 ---------------------------------------------------------------------------------------
 Try building erase module with symbosl: H8Sruntime.lib not found
 
